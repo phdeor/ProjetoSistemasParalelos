@@ -8,7 +8,7 @@ services:
     networks:
       - bbs_net
 
-  # ================= SERVIDORES PYTHON (VOCÊ) =================
+  # ================= SERVIDORES PYTHON =================
   server_py_1:
     build: ./python
     container_name: server_py_1
@@ -16,10 +16,12 @@ services:
     environment:
       - SERVER_NAME=server_py_1
       - BROKER_URL=tcp://broker:5556
+      - PROXY_PUB_URL=tcp://proxy_pubsub:5557
     volumes:
       - ./data/server_py_1:/data
     depends_on:
       - broker
+      - proxy_pubsub
     networks:
       - bbs_net
 
@@ -30,14 +32,16 @@ services:
     environment:
       - SERVER_NAME=server_py_2
       - BROKER_URL=tcp://broker:5556
+      - PROXY_PUB_URL=tcp://proxy_pubsub:5557
     volumes:
       - ./data/server_py_2:/data
     depends_on:
       - broker
+      - proxy_pubsub
     networks:
       - bbs_net
 
-  # ================= CLIENTES PYTHON (VOCÊ) =================
+  # ================= CLIENTES PYTHON =================
   client_py_1:
     build: ./python
     container_name: client_py_1
@@ -45,8 +49,10 @@ services:
     environment:
       - CLIENT_NAME=bot_py_1
       - BROKER_URL=tcp://broker:5555
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
     depends_on:
       - broker
+      - proxy_pubsub
       - server_py_1
       - server_py_2
     networks:
@@ -55,12 +61,14 @@ services:
   client_py_2:
     build: ./python
     container_name: client_py_2
-    command: python -u client_py_2
+    command: python -u client.py
     environment:
       - CLIENT_NAME=bot_py_2
       - BROKER_URL=tcp://broker:5555
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
     depends_on:
       - broker
+      - proxy_pubsub
       - server_py_1
       - server_py_2
     networks:
