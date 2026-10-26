@@ -8,7 +8,7 @@ services:
     networks:
       - bbs_net
 
-  # ================= SERVIDORES PYTHON (VOCÊ) =================
+  # ================= SERVIDORES PYTHON =================
   server_py_1:
     build: ./python
     container_name: server_py_1
@@ -37,7 +37,7 @@ services:
     networks:
       - bbs_net
 
-  # ================= CLIENTES PYTHON (VOCÊ) =================
+  # ================= CLIENTES PYTHON =================
   client_py_1:
     build: ./python
     container_name: client_py_1
@@ -65,6 +65,29 @@ services:
       - server_py_2
     networks:
       - bbs_net
+  
+  # ================= JAVA =================
+
+  cliente-java:
+    build:
+      context: ./java/client
+      dockerfile: Dockerfile
+    container_name: cliente-java
+    environment:
+      BROKER_ADDRESS: tcp://broker:5555
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  servidor-java:
+    build:
+      context: ./java/server
+      dockerfile: Dockerfile
+    container_name: servidor-java
+    environment:
+      BROKER_ADDRESS: tcp://broker:5556
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
 networks:
   bbs_net:
