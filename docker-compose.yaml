@@ -70,24 +70,25 @@ services:
 
   cliente-java:
     build:
-      context: ./java/client
+      context: ./java
       dockerfile: Dockerfile
-    container_name: cliente-java
+    depends_on:
+      - broker
     environment:
-      BROKER_ADDRESS: tcp://broker:5555
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      SERVER_ADDRESS: broker
+      CLIENT_NAME: client_java
+    command: ["java", "-jar", "app.jar", "com.sistema.ClientBotMain"]
 
   servidor-java:
     build:
-      context: ./java/server
+      context: ./java
       dockerfile: Dockerfile
-    container_name: servidor-java
+    depends_on:
+      - broker
     environment:
-      BROKER_ADDRESS: tcp://broker:5556
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
+      SERVER_ADDRESS: broker
+      SERVER_NAME: server_java
+    command: ["java", "-jar", "app.jar", "com.sistema.ServerMain"]
 
 networks:
   bbs_net:

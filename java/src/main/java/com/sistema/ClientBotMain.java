@@ -28,8 +28,9 @@ public class ClientBotMain {
             byte[] replyBytes = socket.recv(0);
             if (replyBytes != null) {
                 // E aqui também:
-                ClientMessage respostaObj = objectMapper.readValue(replyBytes, ClientMessage.class);
-                System.out.println("[JAVA BOT] Resposta: " + respostaObj.getContent());
+                ServerMessage respostaObj = objectMapper.readValue(replyBytes, ServerMessage.class);
+                System.out
+                        .println("[JAVA BOT] Resposta: " + respostaObj.getStatus() + " - " + respostaObj.getMessage());
             }
         } catch (Exception e) {
             System.err.println("Erro no cliente: " + e.getMessage());
