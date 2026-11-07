@@ -10,6 +10,17 @@ BROKER_URL = os.getenv("BROKER_URL", "tcp://broker:5556")
 PROXY_PUB_URL = os.getenv("PROXY_PUB_URL", "tcp://proxy_pubsub:5557")
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 DB_FILE = os.path.join(DATA_DIR, "database.json")
+# parte 3
+REFERENCE_URL = os.getenv("REFERENCE_URL", "tcp://referencia:5559")
+
+logical_clock = 0
+clock_offset = 0.0
+client_msg_count = 0
+my_rank = 0
+
+
+def get_physical_time():
+    return time.time() + clock_offset
 
 
 def format_time(ts):
@@ -25,7 +36,7 @@ def load_db():
     with open(DB_FILE, "r", encoding="utf-8") as f:
         db = json.load(f)
         if "messages" not in db:
-            db["messages]"] = []
+            db["messages"] = []
         return db
 
 
@@ -36,27 +47,40 @@ def save_db(data):
 
 
 def log_message(direction, msg_dict):
-    ts = msg_dict.get("data", {}).get("timestamp", time.time())
+    ts = msg_dict.get("data", {}).get("timestamp", get_physical_time())
     ts_str = format_time(ts)
-    print(f"[{SERVER_NAME}] [{ts_str}] {direction}: {json.dumps(msg_dict, ensure_ascii=False)}", flush=True)
+    lc = msg_dict.get("logical_clock", "?")
+    print(f"[{SERVER_NAME}] [{ts_str}] [LC:{lc}] {direction}: {json.dumps(msg_dict, ensure_ascii=False)}", flush=True)
 
 
-def handle_request(request, pub_socket): 
+def sync_time_and_heartbeat(ref_socket):
+    global clock_offset
+    req = {"service": "heartbeat", "name": SERVER_NAME}
+    ref_socket.send(msgpack.packb(req, use_bin_type=True))
+    rep = msgpack.unpackb(ref_socket.recv(), raw=False)
+
+    ref_time = rep.get("time", time.time())
+    clock_offset = ref_time - time.time()
+
+def handle_request(request, pub_socket):
+    global logical_clock
     service = request.get("service")
     data = request.get("data", {})
     db = load_db()
 
+    current_time = get_physical_time()
+
     # 1. Login do usuário
     if service == "login":
         user = data.get("user", "").strip()
-        req_ts = data.get("timestamp", time.time())
+        req_ts = data.get("timestamp", current_time)
 
         if not user:
             return {
                 "service": "login",
                 "data": {
                     "status": "erro",
-                    "timestamp": time.time(),
+                    "timestamp": current_time,
                     "description": "Nome de usuario vazio."
                 }
             }
@@ -68,7 +92,7 @@ def handle_request(request, pub_socket):
             "service": "login",
             "data": {
                 "status": "sucesso",
-                "timestamp": time.time()
+                "timestamp": current_time
             }
         }
 
@@ -81,7 +105,7 @@ def handle_request(request, pub_socket):
                 "service": "channel",
                 "data": {
                     "status": "erro",
-                    "timestamp": time.time(),
+                    "timestamp": current_time,
                     "description": "Nome de canal invalido."
                 }
             }
@@ -91,7 +115,7 @@ def handle_request(request, pub_socket):
                 "service": "channel",
                 "data": {
                     "status": "erro",
-                    "timestamp": time.time(),
+                    "timestamp": current_time,
                     "description": f"Canal '{channel}' ja existe."
                 }
             }
@@ -103,7 +127,7 @@ def handle_request(request, pub_socket):
             "service": "channel",
             "data": {
                 "status": "sucesso",
-                "timestamp": time.time()
+                "timestamp": current_time
             }
         }
 
@@ -113,59 +137,86 @@ def handle_request(request, pub_socket):
             "service": "channels",
             "data": {
                 "channels": db["channels"],
-                "timestamp": time.time()
+                "timestamp": current_time
             }
         }
-     # 3. Publisher
+
+    # 4. Publisher
     elif service == "publish":
         channel = data.get("channel", "").strip()
         msg_text = data.get("message", "").strip()
-        req_ts = data.get("timestamp", time.time())
+        req_ts = data.get("timestamp", current_time)
         
         if channel not in db["channels"]:
-            return {"service": "publish", "data": {"status": "erro", "timestamp": time.time(), "description": "Canal nao existe."}}
+            return {"service": "publish", "data": {"status": "erro", "timestamp": current_time, "description": "Canal nao existe."}}
         
         db["messages"].append({"channel": channel, "message": msg_text, "timestamp": req_ts})
         save_db(db)
         
-        pub_payload = {"channel": channel, "message": msg_text, "timestamp": req_ts}
+        logical_clock += 1
+        pub_payload = {"channel": channel, "message": msg_text, "timestamp": req_ts, "logical_clock": logical_clock}
         packed_payload = msgpack.packb(pub_payload, use_bin_type=True)
         pub_socket.send_multipart([channel.encode('utf-8'), packed_payload])
         
-        return {"service": "publish", "data": {"status": "sucesso", "timestamp": time.time()}}
+        return {"service": "publish", "data": {"status": "sucesso", "timestamp": current_time}}
+
     else:
         return {
             "service": str(service),
             "data": {
                 "status": "erro",
-                "timestamp": time.time(),
+                "timestamp": current_time,
                 "description": "Servico desconhecido."
             }
         }
 
 
 def main():
+    global logical_clock, clock_offset, client_msg_count, my_rank
     context = zmq.Context()
+    
     socket = context.socket(zmq.REP)
     socket.connect(BROKER_URL)
+    
     pub_socket = context.socket(zmq.PUB)
     pub_socket.connect(PROXY_PUB_URL)
+    
+    ref_socket = context.socket(zmq.REQ)
+    ref_socket.connect(REFERENCE_URL)
 
     load_db()
-    print(f"[{SERVER_NAME}] Conectado em {BROKER_URL}. Aguardando mensagens...", flush=True)
+    
+    ref_socket.send(msgpack.packb({"service": "get_rank", "name": SERVER_NAME}, use_bin_type=True))
+    rank_rep = msgpack.unpackb(ref_socket.recv(), raw=False)
+    my_rank = rank_rep.get("rank")
+    
+    ref_time = rank_rep.get("time", time.time())
+    clock_offset = ref_time - time.time()
+
+    print(f"[{SERVER_NAME}] Conectado em {BROKER_URL}. Rank: {my_rank}. Aguardando mensagens...", flush=True)
 
     while True:
-        # Recebe binário (MessagePack) e converte para dicionário
         raw_req = socket.recv()
         request = msgpack.unpackb(raw_req, raw=False)
+        
+        recv_clock = request.get("logical_clock", 0)
+        logical_clock = max(logical_clock, recv_clock)
+        
         log_message("RECEBIDO", request)
 
         response = handle_request(request, pub_socket)
 
-        # Converte resposta para binário (MessagePack) e envia
+        logical_clock += 1
+        response["logical_clock"] = logical_clock
+
         log_message("ENVIADO", response)
         raw_rep = msgpack.packb(response, use_bin_type=True)
         socket.send(raw_rep)
+
+        client_msg_count += 1
+        if client_msg_count >= 10:
+            sync_time_and_heartbeat(ref_socket)
+            client_msg_count = 0
 
 
 if __name__ == "__main__":
