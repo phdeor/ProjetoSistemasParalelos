@@ -6,7 +6,6 @@ public class ClientMessage {
     private String content;
     private long timestamp;
 
-    // Construtor vazio (obrigatório para serialização)
     public ClientMessage() {
     }
 
@@ -17,7 +16,6 @@ public class ClientMessage {
         this.timestamp = System.currentTimeMillis();
     }
 
-    // Getters e Setters
     public String getSender() {
         return sender;
     }

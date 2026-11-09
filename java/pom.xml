@@ -37,6 +37,20 @@
         <artifactId>jackson-dataformat-msgpack</artifactId>
         <version>0.9.3</version> <!-- Verifique a versão mais recente se necessário -->
     </dependency>
+
+    <!-- API de logging -->
+    <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>2.0.17</version>
+    </dependency>
+
+    <!-- Implementação dos logs -->
+    <dependency>
+        <groupId>ch.qos.logback</groupId>
+        <artifactId>logback-classic</artifactId>
+        <version>1.5.18</version>
+    </dependency>
   </dependencies>
 
   <build>
@@ -81,32 +95,31 @@
           <artifactId>maven-project-info-reports-plugin</artifactId>
           <version>3.0.0</version>
         </plugin>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-assembly-plugin</artifactId>
-            <version>3.6.0</version>
-            <configuration>
-                <descriptorRefs>
-                    <descriptorRef>jar-with-dependencies</descriptorRef>
-                </descriptorRefs>
-                <archive>
-                    <manifest>
-                        <!-- Pode deixar qualquer uma aqui ou omitir, pois chamamos via command no docker -->
-                        <mainClass>com.sistema.ServerMain</mainClass>
-                    </manifest>
-                </archive>
-            </configuration>
-            <executions>
-                <execution>
-                    <id>make-assembly</id>
-                    <phase>package</phase>
-                    <goals>
-                        <goal>single</goal>
-                    </goals>
-                </execution>
-            </executions>
-        </plugin>
-      </plugins>
+        </plugins>
     </pluginManagement>
+    <plugins>
+      <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-shade-plugin</artifactId>
+          <version>3.6.0</version>
+
+          <executions>
+              <execution>
+                  <phase>package</phase>
+                  <goals>
+                      <goal>shade</goal>
+                  </goals>
+
+                  <configuration>
+                      <transformers>
+                          <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                              <mainClass>com.sistema.ServerMain</mainClass>
+                          </transformer>
+                      </transformers>
+                  </configuration>
+              </execution>
+          </executions>
+      </plugin>
+    </plugins>
   </build>
 </project>
