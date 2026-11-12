@@ -8,6 +8,7 @@ from datetime import datetime
 SERVER_NAME = os.getenv("SERVER_NAME", "server_py_1")
 BROKER_URL = os.getenv("BROKER_URL", "tcp://broker:5556")
 PROXY_PUB_URL = os.getenv("PROXY_PUB_URL", "tcp://proxy_pubsub:5557")
+PROXY_SUB_URL = os.getenv("PROXY_SUB_URL", "tcp://proxy_pubsub:5558")
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 DB_FILE = os.path.join(DATA_DIR, "database.json")
 # parte 3
@@ -17,6 +18,7 @@ logical_clock = 0
 clock_offset = 0.0
 client_msg_count = 0
 my_rank = 0
+coordinator_name = None  # Variavel da Parte 4
 
 
 def get_physical_time():
@@ -53,14 +55,73 @@ def log_message(direction, msg_dict):
     print(f"[{SERVER_NAME}] [{ts_str}] [LC:{lc}] {direction}: {json.dumps(msg_dict, ensure_ascii=False)}", flush=True)
 
 
-def sync_time_and_heartbeat(ref_socket):
-    global clock_offset
+# Novas funcoes para a Parte 4 (Eleicao e Coordenador)
+def start_election(context, ref_socket, pub_socket):
+    global coordinator_name
+    
+    ref_socket.send(msgpack.packb({"service": "list"}, use_bin_type=True))
+    rep = msgpack.unpackb(ref_socket.recv(), raw=False)
+    servers = rep.get("servers", [])
+    
+    higher_ranks = [s["name"] for s in servers if s["rank"] > my_rank and s["name"] != SERVER_NAME]
+    
+    got_ok = False
+    for peer in higher_ranks:
+        url = f"tcp://{peer}:5560"
+        req_elec = context.socket(zmq.REQ)
+        req_elec.setsockopt(zmq.LINGER, 0)
+        req_elec.connect(url)
+        req_elec.send(msgpack.packb({"service": "eleicao"}, use_bin_type=True))
+        
+        poller = zmq.Poller()
+        poller.register(req_elec, zmq.POLLIN)
+        if dict(poller.poll(2000)):
+            resp = msgpack.unpackb(req_elec.recv(), raw=False)
+            if resp.get("status") == "OK":
+                got_ok = True
+        req_elec.close()
+        
+        if got_ok:
+            break
+            
+    if not got_ok:
+        coordinator_name = SERVER_NAME
+        pub_socket.send_multipart([b"servers", SERVER_NAME.encode('utf-8')])
+
+
+def sync_time_and_heartbeat(context, ref_socket, pub_socket):
+    global clock_offset, coordinator_name
+    
     req = {"service": "heartbeat", "name": SERVER_NAME}
     ref_socket.send(msgpack.packb(req, use_bin_type=True))
-    rep = msgpack.unpackb(ref_socket.recv(), raw=False)
+    ref_socket.recv() # O ref apenas responde OK agora
 
-    ref_time = rep.get("time", time.time())
-    clock_offset = ref_time - time.time()
+    if coordinator_name == SERVER_NAME:
+        return # Sou o coordenador, nao peco a hora
+        
+    if coordinator_name:
+        url = f"tcp://{coordinator_name}:5560"
+        req_clock = context.socket(zmq.REQ)
+        req_clock.setsockopt(zmq.LINGER, 0)
+        req_clock.connect(url)
+        req_clock.send(msgpack.packb({"service": "relogio"}, use_bin_type=True))
+        
+        poller = zmq.Poller()
+        poller.register(req_clock, zmq.POLLIN)
+        socks = dict(poller.poll(2000))
+        
+        if req_clock in socks:
+            resp = msgpack.unpackb(req_clock.recv(), raw=False)
+            if resp.get("status") == "ok":
+                ref_time = resp.get("time")
+                clock_offset = ref_time - time.time()
+        else:
+            coordinator_name = None
+            start_election(context, ref_socket, pub_socket)
+        req_clock.close()
+    else:
+        start_election(context, ref_socket, pub_socket)
+
 
 def handle_request(request, pub_socket):
     global logical_clock
@@ -172,7 +233,7 @@ def handle_request(request, pub_socket):
 
 
 def main():
-    global logical_clock, clock_offset, client_msg_count, my_rank
+    global logical_clock, clock_offset, client_msg_count, my_rank, coordinator_name
     context = zmq.Context()
     
     socket = context.socket(zmq.REP)
@@ -181,42 +242,80 @@ def main():
     pub_socket = context.socket(zmq.PUB)
     pub_socket.connect(PROXY_PUB_URL)
     
+    # Novo socket ouvindo o pub/sub para receber o topico "servers"
+    sub_socket = context.socket(zmq.SUB)
+    sub_socket.connect(PROXY_SUB_URL)
+    sub_socket.setsockopt_string(zmq.SUBSCRIBE, "servers")
+    
     ref_socket = context.socket(zmq.REQ)
     ref_socket.connect(REFERENCE_URL)
+
+    # Novo socket para conversar com outros servidores (porta 5560)
+    peer_socket = context.socket(zmq.REP)
+    peer_socket.bind("tcp://*:5560")
 
     load_db()
     
     ref_socket.send(msgpack.packb({"service": "get_rank", "name": SERVER_NAME}, use_bin_type=True))
     rank_rep = msgpack.unpackb(ref_socket.recv(), raw=False)
     my_rank = rank_rep.get("rank")
-    
-    ref_time = rank_rep.get("time", time.time())
-    clock_offset = ref_time - time.time()
+    clock_offset = 0.0
 
-    print(f"[{SERVER_NAME}] Conectado em {BROKER_URL}. Rank: {my_rank}. Aguardando mensagens...", flush=True)
+    print(f"[{SERVER_NAME}] Conectado. Rank: {my_rank}.", flush=True)
+
+    # Inicia a lógica da Parte 4 verificando eleicao
+    start_election(context, ref_socket, pub_socket)
+
+    poller = zmq.Poller()
+    poller.register(socket, zmq.POLLIN)
+    poller.register(peer_socket, zmq.POLLIN)
+    poller.register(sub_socket, zmq.POLLIN)
 
     while True:
-        raw_req = socket.recv()
-        request = msgpack.unpackb(raw_req, raw=False)
+        socks = dict(poller.poll(1000))
         
-        recv_clock = request.get("logical_clock", 0)
-        logical_clock = max(logical_clock, recv_clock)
-        
-        log_message("RECEBIDO", request)
+        # 1. Trata clientes
+        if socket in socks:
+            raw_req = socket.recv()
+            request = msgpack.unpackb(raw_req, raw=False)
+            
+            recv_clock = request.get("logical_clock", 0)
+            logical_clock = max(logical_clock, recv_clock)
+            
+            log_message("RECEBIDO", request)
 
-        response = handle_request(request, pub_socket)
+            response = handle_request(request, pub_socket)
 
-        logical_clock += 1
-        response["logical_clock"] = logical_clock
+            logical_clock += 1
+            response["logical_clock"] = logical_clock
 
-        log_message("ENVIADO", response)
-        raw_rep = msgpack.packb(response, use_bin_type=True)
-        socket.send(raw_rep)
+            log_message("ENVIADO", response)
+            raw_rep = msgpack.packb(response, use_bin_type=True)
+            socket.send(raw_rep)
 
-        client_msg_count += 1
-        if client_msg_count >= 10:
-            sync_time_and_heartbeat(ref_socket)
-            client_msg_count = 0
+            client_msg_count += 1
+            if client_msg_count >= 15: # Atualizado para 15 mensagens
+                sync_time_and_heartbeat(context, ref_socket, pub_socket)
+                client_msg_count = 0
+                
+        # 2. Trata comunicacao entre servidores (eleicao e pedido de relogio)
+        if peer_socket in socks:
+            raw_req = peer_socket.recv()
+            req = msgpack.unpackb(raw_req, raw=False)
+            service = req.get("service")
+            
+            if service == "eleicao":
+                peer_socket.send(msgpack.packb({"status": "OK"}, use_bin_type=True))
+                start_election(context, ref_socket, pub_socket)
+            elif service == "relogio":
+                peer_socket.send(msgpack.packb({"status": "ok", "time": get_physical_time()}, use_bin_type=True))
+
+        # 3. Escuta quem venceu a eleicao no tópico
+        if sub_socket in socks:
+            topic, raw_payload = sub_socket.recv_multipart()
+            if topic == b"servers":
+                coordinator_name = raw_payload.decode('utf-8')
+                print(f"[{SERVER_NAME}] Novo Coordenador eleito e reconhecido: {coordinator_name}", flush=True)
 
 
 if __name__ == "__main__":

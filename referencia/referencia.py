@@ -43,7 +43,7 @@ def main():
                 if name in servers:
                     servers[name]["last_hb"] = time.time()
                 
-                rep = {"status": "ok", "time": time.time()}
+                rep = {"status": "ok"}
                 socket.send(msgpack.packb(rep, use_bin_type=True))
                 
         except zmq.Again:
