@@ -1,5 +1,8 @@
 package com.sistema;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.msgpack.jackson.dataformat.MessagePackFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,7 +10,12 @@ import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sistema.model.ClientMessage;
+import com.sistema.model.LoginPayload;
+import com.sistema.model.ServerMessage;
+import com.sistema.model.ServerStatusEnum;
 
 public class ServerMain {
     private static final String SERVER_NAME = getEnvVariable(
@@ -19,6 +27,8 @@ public class ServerMain {
             new MessagePackFactory());
 
     private static final Logger log = LoggerFactory.getLogger(ServerMain.class);
+
+    private static final List<String> channels = new ArrayList<>();
 
     public static void main(String[] args) {
         log.info("Iniciando servidor: " + SERVER_NAME);
@@ -39,7 +49,8 @@ public class ServerMain {
                     break;
 
                 ClientMessage mensagemRecebida = objectMapper.readValue(requestBytes, ClientMessage.class);
-                log.info("-> [RECEBIDO] " + mensagemRecebida.getContent());
+                log.info("[RECEBIDO] canal: " + mensagemRecebida.getChannel() + ", conteudo: "
+                        + mensagemRecebida.getContent());
 
                 orchestrateMessage(mensagemRecebida);
             }
@@ -48,7 +59,7 @@ public class ServerMain {
         }
     }
 
-    private static void encodeMessageSucess(String message) {
+    private static void encodeMessageSucess(JsonNode message) {
         try {
             ServerMessage msg = new ServerMessage(SERVER_NAME, ServerStatusEnum.OK, message);
             socket.send(objectMapper.writeValueAsBytes(msg), 0);
@@ -59,7 +70,8 @@ public class ServerMain {
 
     private static void encodeMessageError(String message) {
         try {
-            ServerMessage msg = new ServerMessage(SERVER_NAME, ServerStatusEnum.ERROR, message);
+            ServerMessage msg = new ServerMessage(SERVER_NAME, ServerStatusEnum.ERROR,
+                    objectMapper.valueToTree(message));
             socket.send(objectMapper.writeValueAsBytes(msg), 0);
         } catch (JsonProcessingException e) {
             log.warn("Erro ao codificar mensagem:" + e.getMessage());
@@ -72,40 +84,56 @@ public class ServerMain {
     }
 
     private static void orchestrateMessage(ClientMessage mensagemRecebida) {
-        log.info("Orquestrando mensagem para o canal: " + mensagemRecebida.getChannel() + " com conteúdo: "
+        var channel = mensagemRecebida.getChannel();
+        log.info("Orquestrando mensagem para o canal: " + channel + " com conteudo: "
                 + mensagemRecebida.getContent());
+        try {
+            if ("login".equalsIgnoreCase(channel)) {
+                handleLogin(mensagemRecebida);
+            } else if ("channel".equalsIgnoreCase(channel)) {
+                createChannel(mensagemRecebida);
+            } else if ("list_channels".equalsIgnoreCase(channel)) {
+                listChannels();
+            } else {
+                log.info("Canal nao reconhecido: " + channel);
+                encodeMessageError("Canal nao reconhecido: " + channel);
+            }
 
-        if ("login".equalsIgnoreCase(mensagemRecebida.getChannel())) {
-            handleLogin(mensagemRecebida);
-        } else if ("channel".equalsIgnoreCase(mensagemRecebida.getChannel())) {
-            createChannel(mensagemRecebida);
-        } else if ("listar canais".equalsIgnoreCase(mensagemRecebida.getChannel())) {
-            listChannels();
-        } else {
-            log.info("Canal não reconhecido: " + mensagemRecebida.getChannel());
-            encodeMessageError("Canal não reconhecido: " + mensagemRecebida.getChannel());
-
+        } catch (Exception e) {
+            log.warn("Erro ao processar mensagem: " + e.getMessage());
+            encodeMessageError("Erro ao processar mensagem: " + e.getMessage());
         }
     }
 
     private static void handleLogin(ClientMessage mensagemRecebida) {
-        log.info("Processando login para o usuário: " + mensagemRecebida.getSender());
-        if ("simula_erro".equalsIgnoreCase(mensagemRecebida.getContent())) {
-            log.warn("Falha no login para o usuário: " + mensagemRecebida.getSender());
-            encodeMessageError("Falha no login para o usuário: " + mensagemRecebida.getSender());
+        log.info("Processando login para o usuario: " + mensagemRecebida.getSender());
+        var content = mensagemRecebida.getContentAs(LoginPayload.class, objectMapper);
+        if (content != null && "admin".equals(content.getUsername()) && "admin".equals(content.getPassword())) {
+            log.info("Login bem-sucedido para o usuario: " + mensagemRecebida.getSender());
+            encodeMessageSucess(
+                    objectMapper.valueToTree("Login bem-sucedido para o usuario: " + mensagemRecebida.getSender()));
         } else {
-            log.info("Login bem-sucedido para o usuário: " + mensagemRecebida.getSender());
-            encodeMessageSucess("Login bem-sucedido para o usuário: " + mensagemRecebida.getSender());
+            log.warn("Falha no login para o usuario: " + mensagemRecebida.getSender());
+            encodeMessageError("Falha no login para o usuario: " + mensagemRecebida.getSender());
         }
+
     }
 
     private static void createChannel(ClientMessage mensagemRecebida) {
-        log.info("Criando canal: " + mensagemRecebida.getContent());
-        encodeMessageSucess("Canal criado com sucesso: " + mensagemRecebida.getContent());
+        var content = mensagemRecebida.getContentAs(String.class, objectMapper);
+        log.info("Criando canal: " + content);
+        if (content != null && !content.isEmpty() && !channels.contains(content)) {
+            channels.add(content);
+            log.info("Canal criado com sucesso: " + content);
+            encodeMessageSucess(objectMapper.valueToTree("Canal criado com sucesso: " + content));
+        } else {
+            log.warn("Falha ao criar canal: " + content);
+            encodeMessageError("Falha ao criar canal: " + content);
+        }
     }
 
     private static void listChannels() {
-        log.info("Listando canais disponíveis...");
-        encodeMessageSucess("Canais disponíveis: canal1, canal2, canal3");
+        log.info("Listando canais disponiveis...");
+        encodeMessageSucess(objectMapper.valueToTree(channels));
     }
 }

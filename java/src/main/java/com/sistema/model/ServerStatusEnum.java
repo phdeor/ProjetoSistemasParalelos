@@ -1,4 +1,4 @@
-package com.sistema;
+package com.sistema.model;
 
 public enum ServerStatusEnum {
     OK,

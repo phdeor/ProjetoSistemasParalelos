@@ -1,15 +1,19 @@
-package com.sistema;
+package com.sistema.model;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class ClientMessage {
     private String sender;
     private String channel;
-    private String content;
+    private JsonNode content;
     private long timestamp;
 
     public ClientMessage() {
     }
 
-    public ClientMessage(String sender, String channel, String content) {
+    public ClientMessage(String sender, String channel, JsonNode content) {
         this.sender = sender;
         this.channel = channel;
         this.content = content;
@@ -32,11 +36,11 @@ public class ClientMessage {
         this.channel = channel;
     }
 
-    public String getContent() {
+    public JsonNode getContent() {
         return content;
     }
 
-    public void setContent(String content) {
+    public void setContent(JsonNode content) {
         this.content = content;
     }
 
@@ -47,4 +51,13 @@ public class ClientMessage {
     public void setTimestamp(long timestamp) {
         this.timestamp = timestamp;
     }
+
+    public <T> T getContentAs(Class<T> type, ObjectMapper mapper) {
+        try {
+            return mapper.treeToValue(content, type);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
 }
