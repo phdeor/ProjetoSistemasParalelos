@@ -1,0 +1,101 @@
+services:
+  broker:
+    build: ./broker
+    container_name: broker
+    ports:
+      - "5555:5555"
+      - "5556:5556"
+    networks:
+      - bbs_net
+
+  # ================= PROXY E COORDENADOR =================
+  proxy_pubsub:
+    build: ./proxy_pubsub
+    container_name: proxy_pubsub
+    ports:
+      - "5557:5557"
+      - "5558:5558"
+    networks:
+      - bbs_net
+
+  referencia:
+    build: ./referencia
+    container_name: referencia
+    ports:
+      - "5559:5559"
+    networks:
+      - bbs_net
+
+  # ================= SERVIDORES PYTHON =================
+  server_py_1:
+    build: ./python
+    container_name: server_py_1
+    command: python -u server.py
+    environment:
+      - SERVER_NAME=server_py_1
+      - BROKER_URL=tcp://broker:5556
+      - PROXY_PUB_URL=tcp://proxy_pubsub:5557
+      - REFERENCE_URL=tcp://referencia:5559
+    volumes:
+      - ./data/server_py_1:/data
+    depends_on:
+      - broker
+      - proxy_pubsub
+      - referencia
+    networks:
+      - bbs_net
+
+  server_py_2:
+    build: ./python
+    container_name: server_py_2
+    command: python -u server.py
+    environment:
+      - SERVER_NAME=server_py_2
+      - BROKER_URL=tcp://broker:5556
+      - PROXY_PUB_URL=tcp://proxy_pubsub:5557
+      - REFERENCE_URL=tcp://referencia:5559
+    volumes:
+      - ./data/server_py_2:/data
+    depends_on:
+      - broker
+      - proxy_pubsub
+      - referencia
+    networks:
+      - bbs_net
+
+  # ================= CLIENTES PYTHON =================
+  client_py_1:
+    build: ./python
+    container_name: client_py_1
+    command: python -u client.py
+    environment:
+      - CLIENT_NAME=bot_py_1
+      - BROKER_URL=tcp://broker:5555
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
+    depends_on:
+      - broker
+      - proxy_pubsub
+      - server_py_1
+      - server_py_2
+    networks:
+      - bbs_net
+
+  client_py_2:
+    build: ./python
+    container_name: client_py_2
+    command: python -u client.py
+    environment:
+      - CLIENT_NAME=bot_py_2
+      - BROKER_URL=tcp://broker:5555
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
+    depends_on:
+      - broker
+      - proxy_pubsub
+      - server_py_1
+      - server_py_2
+    networks:
+      - bbs_net
+
+networks:
+  bbs_net:
+    driver: bridge
