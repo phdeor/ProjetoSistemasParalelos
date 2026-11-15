@@ -95,6 +95,34 @@ services:
       - server_py_2
     networks:
       - bbs_net
+  
+  # ================= JAVA =================
+
+  cliente-java:
+    build:
+      context: ./java
+      dockerfile: Dockerfile
+    depends_on:
+      - broker
+    networks:
+      - bbs_net
+    environment:
+      SERVER_ADDRESS: broker
+      CLIENT_NAME: client_java
+    command: ["java", "-cp", "app.jar", "com.sistema.ClientBotMain"]
+
+  servidor-java:
+    build:
+      context: ./java
+      dockerfile: Dockerfile
+    depends_on:
+      - broker
+    networks:
+      - bbs_net
+    environment:
+      SERVER_ADDRESS: broker
+      SERVER_NAME: server_java
+    command: ["java", "-cp", "app.jar", "com.sistema.ServerMain"]
 
 networks:
   bbs_net:
