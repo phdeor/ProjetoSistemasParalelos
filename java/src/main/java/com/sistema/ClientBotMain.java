@@ -24,6 +24,8 @@ public class ClientBotMain {
 
     private static ZMQ.Socket socket = null;
 
+    private static ZMQ.Socket subscriber = null;
+
     private static final ObjectMapper objectMapper = new ObjectMapper(
             new MessagePackFactory());
 
@@ -35,17 +37,22 @@ public class ClientBotMain {
             socket = context.createSocket(ZMQ.REQ);
 
             String serverAddress = getEnvVariable("SERVER_ADDRESS", "localhost");
+
             log.info("Conectando no broker - " + "tcp://" + serverAddress + ":5555");
             socket.connect("tcp://" + serverAddress + ":5555");
 
+            String subscriberAddress = getEnvVariable("SUBSCRIBER_ADDRESS", "localhost");
+            log.info("Conectando no subscriber - " + "tcp://" + subscriberAddress + ":5558");
+            subscriber = context.createSocket(ZMQ.SUB);
+
             login();
-            Thread.sleep(4000);
-            createChannel("canal1");
             Thread.sleep(2000);
-            createChannel("canal2");
+            createChannel("futebol");
             Thread.sleep(2000);
-            createChannel("canal3");
-            Thread.sleep(4000);
+            createChannel("comida");
+            Thread.sleep(2000);
+            createChannel("noticias");
+            Thread.sleep(2000);
             listChannels();
         } catch (Exception e) {
             log.warn("Erro no cliente: " + e.getMessage());
@@ -100,12 +107,53 @@ public class ClientBotMain {
                 new TypeReference<List<String>>() {
                 });
 
-        log.info(
-                channels != null ? "Canais disponiveis: \n" + String.join("\n", channels) : "Nenhum canal disponivel.");
+        if (channels == null || channels.isEmpty()) {
+            log.info("Nenhum canal disponivel.");
+            return;
+        }
+
+        int random = (int) (Math.random() * channels.size());
+        String channelToSubscribe = channels.get(random);
+        log.info("Canais disponiveis: `" + String.join("`, `", channels) + "`");
+        log.info("Assinando canal: " + channelToSubscribe);
+        subscriber.subscribe(channelToSubscribe.getBytes());
     }
 
     private static String getEnvVariable(String name, String defaultValue) {
         String value = System.getenv(name);
         return (value != null) ? value : defaultValue;
+    }
+
+    private static void startSubscriber(List<String> channels) {
+
+        Thread subscriberThread = new Thread(() -> {
+
+            try (ZContext context = new ZContext()) {
+
+                ZMQ.Socket subscriber = context.createSocket(ZMQ.SUB);
+
+                String subscriberAddress = getEnvVariable(
+                        "SUBSCRIBER_ADDRESS", "localhost");
+
+                subscriber.connect("tcp://" + subscriberAddress + ":5558");
+
+                // Inscrições nos canais
+                for (String channel : channels) {
+                    subscriber.subscribe(channel.getBytes());
+                    log.info("Inscrito no canal: " + channel);
+                }
+
+                // Recebimento das mensagens
+                while (!Thread.currentThread().isInterrupted()) {
+
+                    // Aqui ficará a lógica de recebimento
+
+                }
+
+            }
+        });
+
+        subscriberThread.setName("Subscriber-Thread");
+        subscriberThread.start();
     }
 }

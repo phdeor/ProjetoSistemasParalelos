@@ -13,6 +13,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sistema.model.ClientMessage;
+import com.sistema.model.ClientMessagePub;
 import com.sistema.model.LoginPayload;
 import com.sistema.model.ServerMessage;
 import com.sistema.model.ServerStatusEnum;
@@ -22,6 +23,7 @@ public class ServerMain {
             "SERVER_NAME", "ServidorJava" + System.currentTimeMillis());
 
     private static ZMQ.Socket socket = null;
+    private static ZMQ.Socket publisher = null;
 
     private static final ObjectMapper objectMapper = new ObjectMapper(
             new MessagePackFactory());
@@ -35,10 +37,16 @@ public class ServerMain {
 
         try (ZContext context = new ZContext()) {
             socket = context.createSocket(ZMQ.REP);
+            publisher = context.createSocket(ZMQ.PUB);
 
             String serverAddress = getEnvVariable("SERVER_ADDRESS", "localhost");
+            String publisherAddress = getEnvVariable("PUBLISHER_ADDRESS", "localhost");
+
             log.info("Iniciando servidor: " + "tcp://" + serverAddress + ":5556");
             socket.connect("tcp://" + serverAddress + ":5556");
+
+            log.info("Iniciando publisher: " + "tcp://" + publisherAddress + ":5557");
+            publisher.bind("tcp://" + publisherAddress + ":5557");
 
             log.info("Aguardando mensagens...");
 
@@ -94,6 +102,8 @@ public class ServerMain {
                 createChannel(mensagemRecebida);
             } else if ("list_channels".equalsIgnoreCase(channel)) {
                 listChannels();
+            } else if ("publish".equalsIgnoreCase(channel)) {
+                publish(mensagemRecebida);
             } else {
                 log.info("Canal nao reconhecido: " + channel);
                 encodeMessageError("Canal nao reconhecido: " + channel);
@@ -135,5 +145,29 @@ public class ServerMain {
     private static void listChannels() {
         log.info("Listando canais disponiveis...");
         encodeMessageSucess(objectMapper.valueToTree(channels));
+    }
+
+    private static void publish(ClientMessage mensagemRecebida) {
+        try {
+            var content = mensagemRecebida.getContentAs(ClientMessagePub.class, objectMapper);
+
+            log.info(
+                    "Publicando mensagem no canal: " + content.getChannel() + " com conteudo: " + content.getMessage());
+            publisher.sendMore(content.getChannel());
+            publisher.send(objectMapper.writeValueAsBytes(content), 0);
+        } catch (JsonProcessingException e) {
+            log.warn("Erro ao publicar mensagem:" + e.getMessage());
+        }
+    }
+
+    private static void publishMessage(ClientMessage mensagemRecebida) {
+        try {
+            log.info("Publicando mensagem no canal: " + mensagemRecebida.getChannel() + " com conteudo: "
+                    + mensagemRecebida.getContent());
+            publisher.sendMore(mensagemRecebida.getChannel());
+            publisher.send(objectMapper.writeValueAsBytes(mensagemRecebida), 0);
+        } catch (JsonProcessingException e) {
+            log.warn("Erro ao publicar mensagem:" + e.getMessage());
+        }
     }
 }
