@@ -8,7 +8,7 @@ services:
     networks:
       - bbs_net
 
-  # ================= PROXY E COORDENADOR =================
+  # ================= PROXY E REFERENCIA =================
   proxy_pubsub:
     build: ./proxy_pubsub
     container_name: proxy_pubsub
@@ -27,6 +27,8 @@ services:
       - bbs_net
 
   # ================= SERVIDORES PYTHON =================
+  # O container_name PRECISA ser igual ao SERVER_NAME: os servidores se
+  # encontram (eleicao / relogio) usando o nome como hostname na rede.
   server_py_1:
     build: ./python
     container_name: server_py_1
@@ -35,6 +37,7 @@ services:
       - SERVER_NAME=server_py_1
       - BROKER_URL=tcp://broker:5556
       - PROXY_PUB_URL=tcp://proxy_pubsub:5557
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
       - REFERENCE_URL=tcp://referencia:5559
     volumes:
       - ./data/server_py_1:/data
@@ -53,9 +56,55 @@ services:
       - SERVER_NAME=server_py_2
       - BROKER_URL=tcp://broker:5556
       - PROXY_PUB_URL=tcp://proxy_pubsub:5557
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
       - REFERENCE_URL=tcp://referencia:5559
     volumes:
       - ./data/server_py_2:/data
+    depends_on:
+      - broker
+      - proxy_pubsub
+      - referencia
+    networks:
+      - bbs_net
+
+  # ================= SERVIDORES JAVA =================
+  server_java_1:
+    build:
+      context: ./java
+      dockerfile: Dockerfile
+    container_name: server_java_1
+    command: ["java", "-cp", "app.jar", "com.sistema.ServerMain"]
+    environment:
+      - SERVER_NAME=server_java_1
+      - BROKER_URL=tcp://broker:5556
+      - PROXY_PUB_URL=tcp://proxy_pubsub:5557
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
+      - REFERENCE_URL=tcp://referencia:5559
+      - DATA_DIR=/data
+    volumes:
+      - ./data/server_java_1:/data
+    depends_on:
+      - broker
+      - proxy_pubsub
+      - referencia
+    networks:
+      - bbs_net
+
+  server_java_2:
+    build:
+      context: ./java
+      dockerfile: Dockerfile
+    container_name: server_java_2
+    command: ["java", "-cp", "app.jar", "com.sistema.ServerMain"]
+    environment:
+      - SERVER_NAME=server_java_2
+      - BROKER_URL=tcp://broker:5556
+      - PROXY_PUB_URL=tcp://proxy_pubsub:5557
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
+      - REFERENCE_URL=tcp://referencia:5559
+      - DATA_DIR=/data
+    volumes:
+      - ./data/server_java_2:/data
     depends_on:
       - broker
       - proxy_pubsub
@@ -75,8 +124,6 @@ services:
     depends_on:
       - broker
       - proxy_pubsub
-      - server_py_1
-      - server_py_2
     networks:
       - bbs_net
 
@@ -91,38 +138,41 @@ services:
     depends_on:
       - broker
       - proxy_pubsub
-      - server_py_1
-      - server_py_2
     networks:
       - bbs_net
-  
-  # ================= JAVA =================
 
-  cliente-java:
+  # ================= CLIENTES JAVA =================
+  client_java_1:
     build:
       context: ./java
       dockerfile: Dockerfile
-    depends_on:
-      - broker
-    networks:
-      - bbs_net
-    environment:
-      SERVER_ADDRESS: broker
-      CLIENT_NAME: client_java
+    container_name: client_java_1
     command: ["java", "-cp", "app.jar", "com.sistema.ClientBotMain"]
+    environment:
+      - CLIENT_NAME=bot_java_1
+      - BROKER_URL=tcp://broker:5555
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
+    depends_on:
+      - broker
+      - proxy_pubsub
+    networks:
+      - bbs_net
 
-  servidor-java:
+  client_java_2:
     build:
       context: ./java
       dockerfile: Dockerfile
+    container_name: client_java_2
+    command: ["java", "-cp", "app.jar", "com.sistema.ClientBotMain"]
+    environment:
+      - CLIENT_NAME=bot_java_2
+      - BROKER_URL=tcp://broker:5555
+      - PROXY_SUB_URL=tcp://proxy_pubsub:5558
     depends_on:
       - broker
+      - proxy_pubsub
     networks:
       - bbs_net
-    environment:
-      SERVER_ADDRESS: broker
-      SERVER_NAME: server_java
-    command: ["java", "-cp", "app.jar", "com.sistema.ServerMain"]
 
 networks:
   bbs_net:

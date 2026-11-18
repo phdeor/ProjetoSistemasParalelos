@@ -9,6 +9,20 @@
             "name": "ClientBotMain",
             "request": "launch",
             "mainClass": "com.sistema.ClientBotMain",
+            "projectName": "bbs-chat"
+        },
+        {
+            "type": "java",
+            "name": "ServerMain",
+            "request": "launch",
+            "mainClass": "com.sistema.ServerMain",
+            "projectName": "bbs-chat"
+        },
+        {
+            "type": "java",
+            "name": "ClientBotMain",
+            "request": "launch",
+            "mainClass": "com.sistema.ClientBotMain",
             "projectName": "zeromq-demo"
         },
         {

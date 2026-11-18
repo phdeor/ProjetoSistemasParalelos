@@ -1,0 +1,16 @@
+<configuration>
+
+    <!-- Configura a saída padrão para o console -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <!-- Formato enxuto: Apenas Hora, Nível e Mensagem -->
+            <pattern>%d{HH:mm:ss} %-5level - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Define o nível global padrão para INFO -->
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+    </root>
+
+</configuration>
